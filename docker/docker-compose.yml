@@ -1,0 +1,73 @@
+version: '3.8'
+services:
+  app:
+    container_name: ${COMPOSE_PROJECT_NAME}-app
+    build:
+      context: ./..
+      dockerfile: ./docker/app/Dockerfile
+    restart: always
+    networks:
+      - elk
+    depends_on:
+        redis:
+          condition: service_healthy
+        elasticsearch:
+          condition:  service_healthy
+
+  elasticsearch:
+    container_name: ${COMPOSE_PROJECT_NAME}-elasticsearch
+    image: elasticsearch:7.17.7
+    restart: always
+    networks:
+      - elk
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    environment:
+      - xpack.security.enabled=false  # https mot needed now
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms2048m -Xmx2048m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: curl -s http://${COMPOSE_PROJECT_NAME}-elasticsearch:9200 >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+
+  redis:
+    container_name: ${COMPOSE_PROJECT_NAME}-redis
+    image: redis:7.0.5-alpine
+    restart: always
+    command: redis-server --save 20 1 --loglevel warning --user ${REDIS_USER} on >${REDIS_PASSWORD} ~* &* +@all --requirepass ${REDIS_PASSWORD}
+    networks:
+      - elk
+    volumes:
+      - redis-cache:/data
+    environment:
+      REDIS_USER: ${REDIS_USER}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 10s
+      timeout: 1s
+      retries: 10
+    ports:
+      - ${REDIS_PORT}:6379
+
+volumes:
+  elasticsearch-data:
+  redis-cache:
+
+networks:
+  elk:
+    external: True
